@@ -20,18 +20,92 @@ class BaseResourceSimulation():
             the parameters for creating a random bi-partite network,
             with the following params:
             
-            - 'n_resources' : 
+            - 'n_resources' : The number of resource nodes.
 
-            - 'n_communities' : 
+            - 'n_communities' : The number of community nodes.
 
-            - 'comm_to_resource_p' : 
+            - 'comm_to_resource_p' : The prob. any community will have an edge with any resource.
+
+            See: https://networkx.org/documentation/stable//reference/algorithms/generated/networkx.algorithms.bipartite.generators.random_graph.html#networkx.algorithms.bipartite.generators.random_graph
 
         already_developed_p : float
-            Between 0 and 1, this represents the starting percent of
-            resource nodes which should be set to developed at timestep 0.
+            Between 0 and 1, this represents the starting prob. of any
+            resource node, that it should be set to developed at timestep 0.
             E.g., if 0, then none will be set, if 1, then all will be set to
             developed.
 
+        dist_scale : float
+            This parameter controls the weighting in generating weighted connections between
+            different communities. It represents how strongly the weights between communities should
+            be influenced by their physical promixity (as represented by distance on the outer network).
+
+            A dist_scale value of 0, means that distance is ignored, and all connections
+            between different communities are drawn from a uniform prob. between 0 and 1.
+            Higher values start to weight closer nodes higher and higher, with dist_scale = 1, means
+            that on average communities that are distance 1 away, will have twice as strong a link
+            as those that are distance 2 away.
+
+            The weight between two communities is calculated as prob. p divided by
+            the distance between two communities raised to the dist_scale power.
+
+        comm_G_args : dict
+            These parameters are passed as a dictionary, and they represent
+            the parameters for generating each communities random network.
+            For now, this random network is generated as a random small world
+            network, with the following fixed parameters:
+
+            - 'n' : The number of nodes in each community.
+
+            - 'k' : Each node is connected to k nearest neighbors in ring topology.
+
+            - 'p' : The probability of rewiring each edge.
+
+            See: https://networkx.org/documentation/networkx-1.9/reference/generated/networkx.generators.random_graphs.watts_strogatz_graph.html
+
+        init_pro_dev_p : float
+            Between 0 and 1, this represents the starting prob. that any node
+            within any of the community networks is set initially to be pro-development.
+            This will correspond to roughly the percent of nodes in state 1 in any
+            communities network.
+
+        com_threshold : float
+            Between 0 and 1, this represent the percent of nodes within a community
+            that have to be in state 1, in order for this community to switch to state
+            1 in the outer network. In other words, the threshold of pro-resource development
+            needed, in order for this community as a whole to vote pro-resource.
+
+            By default this can just be .5, but changing it could represent
+            changing policy.
+
+        base_spread_p : float
+            Between 0 and 1, this represent a base prob.
+            within a community where all of that communities neighbors are 
+            against resource development, i.e., all in state 0.
+            This spread rate is then adjusted to be higher when some neighboring
+            communities are in state 1. The rate of this adjustment is controlled by
+            additional parameter outside_influence_k, such that a communtities adjusted
+            spread at any given timestep is computed by,
+            
+            base_spread_p + ((1 - base_spread_p) * pos_influence * outside_influence_k)
+
+            Where pos_influence is the weighted percentage of this communities neighbors which
+            are in state 1.
+
+            This adjusted spread rate is used within each community to define the
+            chance that any given node switches states at any timestep - which depends on
+            that node's neighbors states as well as this influence rate.
+
+        outside_influence_k : float
+            Between 0 and 1, simply a scaler on how much a communities neighbors should
+            influence spreading within that community, where 1 means it should influence it
+            a lot, and 0 means that the base spread rate will always be used, totally
+            ignoring neighbors.
+
+        vote_every : int
+            This controls an optional lag in when voting for resources occurs.
+            When set to 1, resources are voted on at the end of every timestep,
+            but this can be set higher, e.g., to 5, such that resources are voted on
+            every 5 timesteps.
 
         vote_threshold : float
             Between 0 and 1, this represents the percent of neighbor community nodes
@@ -308,28 +382,3 @@ class BaseResourceSimulation():
 
     def save_history(self):
         pass
-
-
-# Right now these are the parameters relevant for generating
-# a random bi-partite graph
-outer_G_args = {'n_resources' : 10,
-                'n_communities' : 20,
-                'comm_to_resource_p' : .3}
-
-# Right now these are the parameters for generating
-# a random small world network
-comm_G_args = {'n': 100,
-               'k': 3,
-               'p': .5}
-
-test = BaseResourceSimulation(outer_G_args=outer_G_args,
-                              already_developed_p=0,
-                              dist_scale=1,
-                              comm_G_args=comm_G_args,
-                              com_threshold=.5,
-                              init_pro_dev_p=.55,
-                              base_spread_p=.5,
-                              outside_influence_k=.75,
-                              vote_every=1,
-                              seed=5) 
-test.run_timestep()
