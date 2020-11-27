@@ -9,7 +9,7 @@ class BaseResourceSimulation():
                  dist_scale, comm_G_args, init_pro_dev_p,
                  com_threshold=.5, base_spread_p=.5,
                  outside_influence_k=.75, vote_every=1,
-                 vote_threshold=.5,
+                 vote_threshold=.5, interest_groups = [],
                  seed=None):
         ''' Main class for running resource / voting simulation
 
@@ -19,7 +19,7 @@ class BaseResourceSimulation():
             These parameters are passed a dictionary, and they represent
             the parameters for creating a random bi-partite network,
             with the following params:
-            
+
             - 'n_resources' : The number of resource nodes.
 
             - 'n_communities' : The number of community nodes.
@@ -79,13 +79,13 @@ class BaseResourceSimulation():
 
         base_spread_p : float
             Between 0 and 1, this represent a base prob.
-            within a community where all of that communities neighbors are 
+            within a community where all of that communities neighbors are
             against resource development, i.e., all in state 0.
             This spread rate is then adjusted to be higher when some neighboring
             communities are in state 1. The rate of this adjustment is controlled by
             additional parameter outside_influence_k, such that a communtities adjusted
             spread at any given timestep is computed by,
-            
+
             base_spread_p + ((1 - base_spread_p) * pos_influence * outside_influence_k)
 
             Where pos_influence is the weighted percentage of this communities neighbors which
@@ -113,11 +113,19 @@ class BaseResourceSimulation():
             Where there must be greater than that porportion of neighbors who
             "vote" yes, for the resource to be developed.
 
+        interest_groups : list
+            A list of the interest groups that will be influencing the citizens.
+            This holds the pro development and anti development groups. Each
+            group is represented by a dict with the folowing params:
+            - 'pro_development' : (bool) if the group is pro or anti development
+            - 'resources' : (int) the number of citizens a group can influence per round
+            - 'strategy' : 
+
         seed : int or None
             The random state seed in which this simulation should be run.
             Used to generate the initial networks, and for different transitions.
         '''
-        
+
         # Simulation random seed
         self.com_threshold = com_threshold
         self.base_spread_p = base_spread_p
@@ -130,6 +138,19 @@ class BaseResourceSimulation():
 
         # Keep track of timesteps
         self.timestep = 0
+
+        # Keep track of model history for each timestep
+        # resources_state_H will store the percent of the resource nodes that
+        # are in the developed state.
+        self.resource_state_H = []
+
+        # citizen_state_H will store the percent of citizens that are in favor
+        # of development totaled over all comunities
+        self.citizen_state_H = []
+
+        # comunity_state_H will store the percent of comunities that are in foavor
+        # of development
+        self.comunity_state_H = []
 
         # Init the outer network
         self.generate_G_outer(**outer_G_args)
@@ -150,6 +171,9 @@ class BaseResourceSimulation():
         # G_outer if needed
         self.proc_communities(init_pro_dev_p)
 
+        # save initial state of model to history
+        self.save_history()
+
     def generate_G_outer(self, n_resources=10, n_communities=20,
                          comm_to_resource_p=.3):
 
@@ -158,7 +182,7 @@ class BaseResourceSimulation():
                                        m=n_communities,
                                        p=comm_to_resource_p,
                                        seed=self.seed)
-        
+
     def proc_G_outer(self, already_developed_p):
 
         # Set initial state of all resources + communities to 0
@@ -166,7 +190,9 @@ class BaseResourceSimulation():
 
         # Check for any disconnected nodes, either communties or resources
         disconnected = list(nx.isolates(self.G_outer))
+        print('Removing for disconnected:', len(disconnected))
         self.G_outer.remove_nodes_from(disconnected)
+
 
         # Save which nodes are which
         self.resource_nodes, self.community_nodes = [], []
@@ -198,23 +224,31 @@ class BaseResourceSimulation():
 
         # For each combination of community nodes
         for n1, n2 in itertools.combinations(self.community_nodes, 2):
-            
+
             # Random uniform prob
             p = self.random_state.random()
 
             # Compute scale by distance,
             # dist_scale of 0, removes scale,'
             # higher values give higher weight to closer nodes
-            scale = distances[n1][n2] ** dist_scale
+            try:
+                scale = distances[n1][n2] ** dist_scale
+
+                # Scale the random uniform prob
+                weight = p / scale
+
+                # Add weighted edge
+                self.G_com.add_edge(n1, n2, weight=weight)
             
-            # Scale the random uniform prob
-            weight = p / scale
-            
-            # Add weighted edge
-            self.G_com.add_edge(n1, n2, weight=weight)
+            # If the two nodes are disconnected in dif networks - dont add edge for now
+            except KeyError:
+                
+                # Make sure nodes are added though
+                self.G_com.add_node(n1)
+                self.G_com.add_node(n2)
 
     def generate_communites(self, n=100, k=3, p=.5):
-        
+
         # Store communities as a dict of networks
         self.communities = {}
 
@@ -223,7 +257,7 @@ class BaseResourceSimulation():
             # Generate a unique random seed for each communities network
             # but still based off the global random seed passed
             seed = self.random_state.randint(0, 100000)
-            
+
             # Generate a random small world network
             G = nx.watts_strogatz_graph(n=n,
                                         k=k,
@@ -257,7 +291,7 @@ class BaseResourceSimulation():
         if self._is_fixed_state(com):
             self.G_outer.nodes[com]['state'] = 1
             return
-        
+
         # Otherwise, base of current porportions
         G = self.communities[com]
 
@@ -269,12 +303,17 @@ class BaseResourceSimulation():
         if (pos_nodes / total_nodes) > self.com_threshold:
             self.G_outer.nodes[com]['state'] = 1
 
+        # Otherwise set to negative
+        else:
+            self.G_outer.nodes[com]['state'] = 0
+
+
     def _is_fixed_state(self, com):
 
         # Check to see if this community is next to a developed resource,
         # if any neighboring resource is developed, return True, else False
         for resource in self.G_outer.neighbors(com):
-            if self.G_outer.nodes[resource] == 1:
+            if self.G_outer.nodes[resource]['state'] == 1:
                 return True
 
         return False
@@ -304,7 +343,7 @@ class BaseResourceSimulation():
 
         # Will want to likely keep track of some history
         self.save_history()
-        
+
     def update_community_spread_ps(self, com):
 
         # Each communities spread rate is based on the influence from
@@ -312,17 +351,24 @@ class BaseResourceSimulation():
 
         # Compute the 'positive influence' as the weighted porportion of
         # neighbors that are pos
-        total_weight = self.G_com.degree(com, weight='weight')
-        edges = self.G_com.edges(com, data=True)
-        pos_weight = sum([e[2]['weight'] for e in edges if self.G_outer.nodes[e[1]]['state'] == 1])
-        pos_influence = pos_weight / total_weight
 
-        # Calculate the adjusted spread for this community at this timestep
-        additional_spread = (1 - self.base_spread_p) * pos_influence * self.outside_influence_k
-        adjusted_spread = self.base_spread_p + additional_spread
+        if self.G_com.degree(com) > 0:
 
-        # Set as attr in the communities graph
-        self.communities[com].spread = adjusted_spread
+            total_weight = self.G_com.degree(com, weight='weight')
+            edges = self.G_com.edges(com, data=True)
+            pos_weight = sum([e[2]['weight'] for e in edges if self.G_outer.nodes[e[1]]['state'] == 1])
+            pos_influence = pos_weight / total_weight
+
+            # Calculate the adjusted spread for this community at this timestep
+            additional_spread = (1 - self.base_spread_p) * pos_influence * self.outside_influence_k
+            adjusted_spread = self.base_spread_p + additional_spread
+
+            # Set as attr in the communities graph
+            self.communities[com].spread = adjusted_spread
+
+        # If a community has no neighbors, the spread is fixed
+        else:
+            self.communities[com].spread = self.base_spread_p
 
     def update_community(self, com):
 
@@ -339,19 +385,14 @@ class BaseResourceSimulation():
             total = G_c.degree(node)
             pos_neighbors = sum([G_c.nodes[n]['state'] for n in G_c.neighbors(node)])
             pos_weight = pos_neighbors / total
-            neg_weight = 1 - pos_weight
 
             # If node's current state is 0, calc prob to change to state 1
             if G.nodes[node]['state'] == 0:
-                spread_chance = neg_weight * G.spread
-  
-            # Otherwise, node's state is 1, calc prob to change to state 0
-            else:
                 spread_chance = pos_weight * G.spread
-            
-            # With random chance, change state
-            if self.random_state.random() < spread_chance:
-                G.nodes[node]['state'] = (G.nodes[node]['state'] + 1) % 2
+          
+                # With random chance, change state
+                if self.random_state.random() < spread_chance:
+                    G.nodes[node]['state'] = 1
 
         # After the round of updates has been done,
         # check to see if the state of the community changes
@@ -359,17 +400,20 @@ class BaseResourceSimulation():
 
     def check_votes(self):
 
+        # Base on a copy of the outer graph
+        G_outer_c = self.G_outer.copy()
+
         # Check every resource's neighbors
-        for resource in self.G_outer.nodes:
+        for resource in G_outer_c.nodes:
 
             # If already developed, skip
-            if self.G_outer.nodes[resource]['state'] == 1:
+            if G_outer_c.nodes[resource]['state'] == 1:
                 continue
 
             # Calc percent of positive neighbors
-            total = self.G_outer.degree(resource)
-            pos_neighbors = sum([self.G_outer.nodes[n]['state'] 
-                                 for n in self.G_outer.neighbors(resource)])
+            total = G_outer_c.degree(resource)
+            pos_neighbors = sum([G_outer_c.nodes[n]['state']
+                                 for n in G_outer_c.neighbors(resource)])
             pos_percent = pos_neighbors / total
 
             # If over the vote threshold, change resource state to developed
@@ -381,4 +425,37 @@ class BaseResourceSimulation():
                      self.G_outer.nodes[n]['state'] = 1
 
     def save_history(self):
-        pass
+        
+        # resource_state_H saves the percentage of resources developed at each timestep
+        num_resources_developed = sum([self.G_outer.nodes[resource]['state']
+                                        for resource in self.resource_nodes])
+        num_total_resources = len(self.resource_nodes)
+        percent_resources_developed = (float(num_resources_developed)/num_total_resources) * 100
+        self.resource_state_H.append(percent_resources_developed)
+
+        # comunity_state_H saves the percentage of comunities in favor of developing
+        # at each timestep
+        num_developing_comunities = sum([self.G_outer.nodes[comunnity]['state']
+                                         for comunnity in self.community_nodes])
+        num_total_comunities = len(self.community_nodes)
+        percent_developing_comunities = (float(num_developing_comunities)/num_total_comunities) * 100
+        self.comunity_state_H.append(percent_developing_comunities)
+
+        # citizen_state_H saves the percentage of citizens in all comunities in favor
+        # of developing
+        num_developing_citizens, num_citizens = 0, 0
+
+        for G in self.communities.values():
+            num_developing_citizens += sum([n[1]['state'] for n in G.nodes(data=True)])
+            num_citizens += len(G.nodes)
+
+        percent_developing_citizens = (float(num_developing_citizens)/num_citizens) * 100
+        self.citizen_state_H.append(round(percent_developing_citizens, 2))
+
+    def get_history(self):
+        history = {
+            'resources' : self.resource_state_H,
+            'comunities' : self.comunity_state_H,
+            'citizens' : self.citizen_state_H
+        }
+        return history
