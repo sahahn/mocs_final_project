@@ -174,15 +174,77 @@ class BaseResourceSimulation():
         # save initial state of model to history
         self.save_history()
 
-    def generate_G_outer(self, n_resources=10, n_communities=20,
-                         comm_to_resource_p=.3):
+    def generate_G_outer(self, n_resources=10, n_communities=20, p_extra=0):
 
-        # Generate random bi-partite graph
-        self.G_outer = random_bi_graph(n=n_resources,
-                                       m=n_communities,
-                                       p=comm_to_resource_p,
-                                       seed=self.seed)
+        self.G_outer = nx.Graph()
+    
+        # This is the base length of the chain
+        chain_length = min([n_resources, n_communities])
 
+        # Add resource nodes and community nodes up to chain length
+        i = 0
+        for _ in range(chain_length):
+            self.G_outer.add_node(i, bipartite=0)
+            self.G_outer.add_node(i+1, bipartite=1)
+            i += 2
+
+        # Add edges
+        for i in range(chain_length * 2):
+            self.G_outer.add_edge(i, i+1)
+            
+        # Add extra either resource or community nodes
+        i = chain_length * 2
+        
+        if n_resources > chain_length:
+            for _ in range(n_resources - chain_length):
+                i += 1
+                self.G_outer.add_node(i, bipartite=0)
+                
+                # Connect to random community in original chain
+                choice = self.random_state.choice(range(chain_length))
+                choice = (choice * 2) + 1
+                self.G_outer.add_edge(i, choice)
+
+        if n_communities > chain_length:
+            for _ in range(n_communities - chain_length):
+                i += 1
+                self.G_outer.add_node(i, bipartite=1)
+                
+                # Connect to random resource in original chain
+                choice = self.random_state.choice(range(chain_length))
+                choice = (choice * 2)
+                self.G_outer.add_edge(i, choice)
+        
+        # Set self.resource nodes and community nodes
+        self._set_node_types()
+        
+        # Add extra random connections
+        if p_extra > 0:
+            
+            current_edges = len(self.G_outer.edges())
+            max_edges = n_resources * n_communities
+            available_edges = max_edges - current_edges
+            to_add = np.round(p_extra * available_edges)
+            
+            cnt = 0
+            while cnt < to_add:
+                r = self.random_state.choice(self.resource_nodes)
+                c = self.random_state.choice(self.community_nodes)
+
+                if (r, c) not in self.outer_G.edges():
+                    self.outer_G.add_edge(r, c)
+                    cnt += 1
+
+    def _set_node_types(self):
+
+        # Save which nodes are which
+        self.resource_nodes, self.community_nodes = [], []
+        for x, y in self.G_outer.nodes(data=True):
+            if y['bipartite'] == 0:
+                self.resource_nodes.append(x)
+            else:
+                self.community_nodes.append(x)
+            
     def proc_G_outer(self, already_developed_p):
 
         # Set initial state of all resources + communities to 0
@@ -193,14 +255,8 @@ class BaseResourceSimulation():
         print('Removing for disconnected:', len(disconnected))
         self.G_outer.remove_nodes_from(disconnected)
 
-
         # Save which nodes are which
-        self.resource_nodes, self.community_nodes = [], []
-        for x, y in self.G_outer.nodes(data=True):
-            if y['bipartite'] == 0:
-                self.resource_nodes.append(x)
-            else:
-                self.community_nodes.append(x)
+        self._set_node_types()
 
         # Sort lists
         self.resource_nodes.sort()
