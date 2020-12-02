@@ -17,16 +17,28 @@ class BaseResourceSimulation():
         ------------
         outer_G_args : dict
             These parameters are passed a dictionary, and they represent
-            the parameters for creating a random bi-partite network,
+            the parameters for creating a bi-partite network based on a bi-partite chain
             with the following params:
 
             - 'n_resources' : The number of resource nodes.
 
             - 'n_communities' : The number of community nodes.
 
-            - 'comm_to_resource_p' : The prob. any community will have an edge with any resource.
+            - 'p_extra' : The number of extra possible connections added to the original bi-partite structure,
+                with 0 as the default of None.
 
-            See: https://networkx.org/documentation/stable//reference/algorithms/generated/networkx.algorithms.bipartite.generators.random_graph.html#networkx.algorithms.bipartite.generators.random_graph
+            The way it works is the common overlap of n_resources and n_communities will form a bi-partite chain,
+            so in an example with 20 communities and 10 resource nodes, there will be 10 resource and 10 community nodes connected in a chain,
+            e.g., 1 to 2, 2 to 3, 3 to 4,... where every other is a community and every other is a node.
+            
+            The way overlapping nodes are handled, e.g., there are 10 more communities then resources,
+            is that they will be added randomly with 1 edge to an existing resource node that is part of the original chain
+            If there were more resources then communities, it would happen vice versa.
+
+            The last piece is p_extra, by default if this is 0, then only the edges described before will be added, but
+            if it is say .5, then 50% of the remaining possible valid bi-partite edges will be randomly filled in
+            or if .1, then .1 of the remaining edges will be filled in. 
+            This gives a tune-able parameter to make the network more or less one big bi-partite chain
 
         already_developed_p : float
             Between 0 and 1, this represents the starting prob. of any
