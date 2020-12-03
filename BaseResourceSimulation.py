@@ -15,30 +15,14 @@ class BaseResourceSimulation():
 
         Parameters
         ------------
-        outer_G_args : dict
+         outer_G_args : dict
             These parameters are passed a dictionary, and they represent
-            the parameters for creating a bi-partite network based on a bi-partite chain
+            the parameters for creating a random bi-partite network,
             with the following params:
-
             - 'n_resources' : The number of resource nodes.
-
             - 'n_communities' : The number of community nodes.
-
-            - 'p_extra' : The number of extra possible connections added to the original bi-partite structure,
-                with 0 as the default of None.
-
-            The way it works is the common overlap of n_resources and n_communities will form a bi-partite chain,
-            so in an example with 20 communities and 10 resource nodes, there will be 10 resource and 10 community nodes connected in a chain,
-            e.g., 1 to 2, 2 to 3, 3 to 4,... where every other is a community and every other is a node.
-            
-            The way overlapping nodes are handled, e.g., there are 10 more communities then resources,
-            is that they will be added randomly with 1 edge to an existing resource node that is part of the original chain
-            If there were more resources then communities, it would happen vice versa.
-
-            The last piece is p_extra, by default if this is 0, then only the edges described before will be added, but
-            if it is say .5, then 50% of the remaining possible valid bi-partite edges will be randomly filled in
-            or if .1, then .1 of the remaining edges will be filled in. 
-            This gives a tune-able parameter to make the network more or less one big bi-partite chain
+            - 'comm_to_resource_p' : The prob. any community will have an edge with any resource.
+            See: https://networkx.org/documentation/stable//reference/algorithms/generated/networkx.algorithms.bipartite.generators.random_graph.html#networkx.algorithms.bipartite.generators.random_graph
 
         already_developed_p : float
             Between 0 and 1, this represents the starting prob. of any
@@ -186,66 +170,14 @@ class BaseResourceSimulation():
         # save initial state of model to history
         self.save_history()
 
-    def generate_G_outer(self, n_resources=10, n_communities=20, p_extra=0):
+    def generate_G_outer(self, n_resources=10, n_communities=20,
+                         comm_to_resource_p=.3):
 
-        self.G_outer = nx.Graph()
-    
-        # This is the base length of the chain
-        chain_length = min([n_resources, n_communities])
-
-        # Add resource nodes and community nodes up to chain length
-        i = 0
-        for _ in range(chain_length):
-            self.G_outer.add_node(i, bipartite=0)
-            self.G_outer.add_node(i+1, bipartite=1)
-            i += 2
-
-        # Add edges
-        for i in range(chain_length * 2):
-            self.G_outer.add_edge(i, i+1)
-            
-        # Add extra either resource or community nodes
-        i = chain_length * 2
-        
-        if n_resources > chain_length:
-            for _ in range(n_resources - chain_length):
-                i += 1
-                self.G_outer.add_node(i, bipartite=0)
-                
-                # Connect to random community in original chain
-                choice = self.random_state.choice(range(chain_length))
-                choice = (choice * 2) + 1
-                self.G_outer.add_edge(i, choice)
-
-        if n_communities > chain_length:
-            for _ in range(n_communities - chain_length):
-                i += 1
-                self.G_outer.add_node(i, bipartite=1)
-                
-                # Connect to random resource in original chain
-                choice = self.random_state.choice(range(chain_length))
-                choice = (choice * 2)
-                self.G_outer.add_edge(i, choice)
-        
-        # Set self.resource nodes and community nodes
-        self._set_node_types()
-        
-        # Add extra random connections
-        if p_extra > 0:
-            
-            current_edges = len(self.G_outer.edges())
-            max_edges = n_resources * n_communities
-            available_edges = max_edges - current_edges
-            to_add = np.round(p_extra * available_edges)
-            
-            cnt = 0
-            while cnt < to_add:
-                r = self.random_state.choice(self.resource_nodes)
-                c = self.random_state.choice(self.community_nodes)
-
-                if (r, c) not in self.outer_G.edges():
-                    self.outer_G.add_edge(r, c)
-                    cnt += 1
+        # Generate random bi-partite graph
+        self.G_outer = random_bi_graph(n=n_resources,
+                                       m=n_communities,
+                                       p=comm_to_resource_p,
+                                       seed=self.seed)
 
     def _set_node_types(self):
 
@@ -527,3 +459,97 @@ class BaseResourceSimulation():
             'citizens' : self.citizen_state_H
         }
         return history
+
+class BiChainSimulation(BaseResourceSimulation):
+    ''' Same as base, but with different outer_G
+
+    Parameters
+    ------------
+    
+    outer_G_args : dict
+            These parameters are passed a dictionary, and they represent
+            the parameters for creating a bi-partite network based on a bi-partite chain
+            with the following params:
+
+            - 'n_resources' : The number of resource nodes.
+
+            - 'n_communities' : The number of community nodes.
+
+            - 'p_extra' : The number of extra possible connections added to the original bi-partite structure,
+                with 0 as the default of None.
+
+            The way it works is the common overlap of n_resources and n_communities will form a bi-partite chain,
+            so in an example with 20 communities and 10 resource nodes, there will be 10 resource and 10 community nodes connected in a chain,
+            e.g., 1 to 2, 2 to 3, 3 to 4,... where every other is a community and every other is a node.
+            
+            The way overlapping nodes are handled, e.g., there are 10 more communities then resources,
+            is that they will be added randomly with 1 edge to an existing resource node that is part of the original chain
+            If there were more resources then communities, it would happen vice versa.
+
+            The last piece is p_extra, by default if this is 0, then only the edges described before will be added, but
+            if it is say .5, then 50% of the remaining possible valid bi-partite edges will be randomly filled in
+            or if .1, then .1 of the remaining edges will be filled in. 
+            This gives a tune-able parameter to make the network more or less one big bi-partite chain
+
+    '''
+
+    def generate_G_outer(self, n_resources=10, n_communities=20, p_extra=0):
+
+        self.G_outer = nx.Graph()
+    
+        # This is the base length of the chain
+        chain_length = min([n_resources, n_communities])
+
+        # Add resource nodes and community nodes up to chain length
+        i = 0
+        for _ in range(chain_length):
+            self.G_outer.add_node(i, bipartite=0)
+            self.G_outer.add_node(i+1, bipartite=1)
+            i += 2
+
+        # Add edges
+        for i in range(chain_length * 2):
+            self.G_outer.add_edge(i, i+1)
+            
+        # Add extra either resource or community nodes
+        i = chain_length * 2
+        
+        if n_resources > chain_length:
+            for _ in range(n_resources - chain_length):
+                i += 1
+                self.G_outer.add_node(i, bipartite=0)
+                
+                # Connect to random community in original chain
+                choice = self.random_state.choice(range(chain_length))
+                choice = (choice * 2) + 1
+                self.G_outer.add_edge(i, choice)
+
+        if n_communities > chain_length:
+            for _ in range(n_communities - chain_length):
+                i += 1
+                self.G_outer.add_node(i, bipartite=1)
+                
+                # Connect to random resource in original chain
+                choice = self.random_state.choice(range(chain_length))
+                choice = (choice * 2)
+                self.G_outer.add_edge(i, choice)
+        
+        # Set self.resource nodes and community nodes
+        self._set_node_types()
+        
+        # Add extra random connections
+        if p_extra > 0:
+            
+            current_edges = len(self.G_outer.edges())
+            max_edges = n_resources * n_communities
+            available_edges = max_edges - current_edges
+            to_add = np.round(p_extra * available_edges)
+            
+            cnt = 0
+            while cnt < to_add:
+                r = self.random_state.choice(self.resource_nodes)
+                c = self.random_state.choice(self.community_nodes)
+
+                if (r, c) not in self.outer_G.edges():
+                    self.outer_G.add_edge(r, c)
+                    cnt += 1
