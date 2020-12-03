@@ -196,7 +196,6 @@ class BaseResourceSimulation():
 
         # Check for any disconnected nodes, either communties or resources
         disconnected = list(nx.isolates(self.G_outer))
-        print('Removing for disconnected:', len(disconnected))
         self.G_outer.remove_nodes_from(disconnected)
 
         # Save which nodes are which
@@ -550,6 +549,6 @@ class BiChainSimulation(BaseResourceSimulation):
                 r = self.random_state.choice(self.resource_nodes)
                 c = self.random_state.choice(self.community_nodes)
 
-                if (r, c) not in self.outer_G.edges():
-                    self.outer_G.add_edge(r, c)
+                if (r, c) not in self.G_outer.edges():
+                    self.G_outer.add_edge(r, c)
                     cnt += 1
