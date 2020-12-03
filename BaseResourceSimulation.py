@@ -508,7 +508,7 @@ class BiChainSimulation(BaseResourceSimulation):
             i += 2
 
         # Add edges
-        for i in range(chain_length * 2):
+        for i in range((chain_length * 2) - 1):
             self.G_outer.add_edge(i, i+1)
             
         # Add extra either resource or community nodes
