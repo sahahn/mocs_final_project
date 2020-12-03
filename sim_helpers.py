@@ -21,7 +21,7 @@ def simulate(args, num_timesteps=50, repeat=1):
 def sim_repeated(args, num_timesteps=50):
    
     # Fixed
-    n_repeats = 16
+    n_repeats = 128
 
     resources = Parallel(n_jobs=16)(delayed(simulate)(args=args.copy(),
                                                       num_timesteps=num_timesteps,
@@ -60,11 +60,11 @@ def get_base_args():
     "base_spread_p" : .1,
     "init_pro_dev_p" : .1,
     
-    "dist_scale" : 1,
+    "dist_scale" : 2,
     "com_threshold" : .5,
     "vote_threshold" : .5,
     
-    "outside_influence_k" : .1,
+    "outside_influence_k" : .15,
     "already_developed_p" : 0,
     "vote_every" : 1,
     }
@@ -79,7 +79,7 @@ def get_base_chain_args():
     args = get_base_args()
 
     del args["outer_G_args"]['comm_to_resource_p']
-    args["outer_G_args"]['p_extra'] = 0
+    args["outer_G_args"]['p_extra'] = .001
 
     args['chain'] = True
 
